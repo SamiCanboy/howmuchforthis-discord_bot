@@ -1,85 +1,91 @@
-const { Client, GatewayIntentBits } = require('discord.js');
 const puppeteerExtra = require('puppeteer-extra');
-const RecaptchaPlugin = require('puppeteer-extra-plugin-recaptcha');
-const fs = require('fs');
+const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 
-const DISCORD_TOKEN = 'MTMyMzQ1NDA5ODE5NTg3NzkzOQ.GAHM3k.6KqZjxhTZKTXeDViIoxxyon3MSvphJcjh19dxc'; // Discord bot token'ınızı buraya ekleyin.
-const RECAPTCHA_API_KEY = '79d4fec56a9fc7ae38c04516bd926be8'; // 2Captcha API anahtarınızı buraya ekleyin.
+// Puppeteer Extra'nın Stealth eklentisini ekle
+puppeteerExtra.use(StealthPlugin());
 
-puppeteerExtra.use(
-    RecaptchaPlugin({
-        provider: { id: '2captcha', token: RECAPTCHA_API_KEY },
-        visualFeedback: true,
-    })
-);
+// Yakıt türü ve şanzıman çevirileri için fonksiyon
+function translateData(key, value) {
+    const translations = {
+        fuel: {
+            Dizel: 'Diesel',
+            Benzin: 'Petrol',
+            Elektrikli: 'Electric',
+            Hibrit: 'Hybrid',
+        },
+        transmission: {
+            Manuel: 'Manual',
+            Otomatik: 'Automatic',
+            'Yarı Otomatik': 'Semi-Automatic',
+        },
+    };
 
-// Çerezleri kaydet ve yükle
-async function saveCookies(page) {
-    const cookies = await page.cookies();
-    fs.writeFileSync('cookies.json', JSON.stringify(cookies, null, 2));
+    return translations[key]?.[value] || value;
 }
 
-async function loadCookies(page) {
-    if (fs.existsSync('cookies.json')) {
-        const cookies = JSON.parse(fs.readFileSync('cookies.json', 'utf-8'));
-        await page.setCookie(...cookies);
-    }
-}
-
+// İlan bilgilerini çeken fonksiyon
 async function fetchRandomCarDetails() {
-    const browser = await puppeteerExtra.launch({ 
-	headless: true,
-	executablePath: '/usr/bin/chromium-browser',
-    	args:['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
-	});
+    const browser = await puppeteerExtra.launch({
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+    });
+
     const page = await browser.newPage();
 
     try {
-        await loadCookies(page);
-        await page.goto('https://www.sahibinden.com/otomobil', { waitUntil: 'domcontentloaded' });
+        await page.goto(
+            'https://www.autoscout24.com.tr/lst?atype=C&cy=D%2CA%2CB%2CE%2CF%2CI%2CL%2CNL&damaged_listing=exclude&desc=0&fregto=2023&offer=U&powertype=kw&search_id=1cieiy2gc7y&sort=standard&source=homepage_search-mask&ustate=N%2CU',
+            { waitUntil: 'domcontentloaded' }
+        );
 
-        const solved = await page.solveRecaptchas();
-        if (solved) {
-            console.log('ReCaptcha başarıyla çözüldü!');
-            await saveCookies(page);
-        }
+        await page.waitForSelector('article[data-testid="list-item"]', { timeout: 60000 });
 
-        await page.waitForSelector('.searchResultsItem', { timeout: 60000 });
         const carLinks = await page.evaluate(() => {
-            const rows = Array.from(document.querySelectorAll('.searchResultsItem'));
-            return rows.map(row => {
-                const titleLink = row.querySelector('a.classifiedTitle');
-                return titleLink ? 'https://www.sahibinden.com' + titleLink.getAttribute('href') : null;
-            }).filter(link => link !== null);
+            const listings = Array.from(document.querySelectorAll('article[data-testid="list-item"]'));
+            return listings
+                .map(listing => {
+                    const linkElement = listing.querySelector('a.ListItem_title__ndA4s');
+                    return linkElement ? 'https://www.autoscout24.com.tr' + linkElement.getAttribute('href') : null;
+                })
+                .filter(link => link !== null);
         });
 
         if (carLinks.length === 0) throw new Error('Hiç ilan bulunamadı.');
-        const randomLink = carLinks[Math.floor(Math.random() * carLinks.length)];
 
+        const randomLink = carLinks[Math.floor(Math.random() * carLinks.length)];
         await page.goto(randomLink, { waitUntil: 'domcontentloaded' });
-        await page.waitForSelector('.classifiedDetailImage', { timeout: 30000 });
 
         const carDetails = await page.evaluate(() => {
-            const infoItems = document.querySelectorAll('.classifiedInfoList li');
-            const getInfo = (label) =>
-                Array.from(infoItems)
-                    .find((li) => li.innerText.includes(label))
-                    ?.querySelector('span')
-                    ?.innerText.trim() || 'Bilinmiyor';
+            const getTextBySelector = (selector) => document.querySelector(selector)?.innerText.trim() || 'Bilinmiyor';
+
+            const title = getTextBySelector('.StageTitle_makeModelContainer__RyjBP');
+            const packageAndPower = getTextBySelector('.StageTitle_modelVersion__Yof2Z');
+            const price = getTextBySelector('.PriceInfo_price__XU0aF');
+            const km = getTextBySelector('.Carpass_carpassLink__qhOc1');
+            const year = getTextBySelector('.VehicleOverview_containerMoreThanFourItems__691k2 div:nth-child(3) .VehicleOverview_itemText__AI4dA');
+            const fuel = getTextBySelector('.VehicleOverview_containerMoreThanFourItems__691k2 div:nth-child(4) .VehicleOverview_itemText__AI4dA');
+            const photo = document.querySelector('.image-gallery-slide .ImageWithBadge_picture__XJG24 img')?.src || 'https://via.placeholder.com/250x188?text=Resim+Yok';
+
+            const power = document.querySelector('#technical-details-section .DetailsSection_childrenSection__aElbi .DataGrid_defaultDdStyle__3IYpG.DataGrid_fontBold__RqU01:nth-of-type(1)')?.innerText.trim() || 'Bilinmiyor';
+            const transmission = document.querySelector('#technical-details-section .DetailsSection_childrenSection__aElbi .DataGrid_defaultDdStyle__3IYpG.DataGrid_fontBold__RqU01:nth-of-type(2)')?.innerText.trim() || 'Bilinmiyor';
+            const engineVolume = document.querySelector('#technical-details-section .DetailsSection_childrenSection__aElbi .DataGrid_defaultDdStyle__3IYpG.DataGrid_fontBold__RqU01:nth-of-type(3)')?.innerText.trim() || 'Bilinmiyor';
 
             return {
-                brand: getInfo('Marka'),
-                series: getInfo('Seri'),
-                model: getInfo('Model'),
-                price: document.querySelector('#favoriteClassifiedPrice')?.value.trim() || 'Bilinmiyor',
-                km: getInfo('KM'),
-                year: getInfo('Yıl'),
-                fuel: getInfo('Yakıt'),
-                transmission: getInfo('Vites'),
-                photo: document.querySelector('.classifiedDetailImage img')?.src || null,
+                title: `${title} - ${packageAndPower}`,
+                price,
+                km,
+                year,
+                fuel,
+                transmission,
+                power,
+                engineVolume,
+                photo,
                 link: window.location.href,
             };
         });
+
+        carDetails.fuel = translateData('fuel', carDetails.fuel);
+        carDetails.transmission = translateData('transmission', carDetails.transmission);
 
         return carDetails;
     } catch (error) {
@@ -90,36 +96,4 @@ async function fetchRandomCarDetails() {
     }
 }
 
-const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] });
-
-client.once('ready', () => {
-    console.log(`${client.user.tag} hazır!`);
-});
-
-client.on('messageCreate', async (message) => {
-    if (message.content === '!howmuchforthis' || message.content === '!rastgeleilan') {
-        await message.channel.send('İlan bilgileri çekiliyor, lütfen bekleyin...');
-
-        const carDetails = await fetchRandomCarDetails();
-
-        if (carDetails) {
-            const { brand, series, model, price, km, year, fuel, transmission, photo, link } = carDetails;
-
-            // Konsola araba bilgilerini yazdır
-            console.log('Araba bilgileri:', carDetails);
-
-            const embed = {
-                title: `${brand} ${series} ${model}`,
-                description: `Fiyat: ${price}\nKM: ${km}\nYıl: ${year}\nYakıt: ${fuel}\nVites: ${transmission}\n[İlanı görüntüle](${link})`,
-                image: { url: photo },
-                color: 0x00aaff,
-            };
-            await message.channel.send({ embeds: [embed] });
-        } else {
-            console.log('Bir hata oluştu, araba bilgileri alınamadı.');
-            await message.channel.send('Bir hata oluştu, ilan bilgileri alınamadı.');
-        }
-    }
-});
-
-client.login(DISCORD_TOKEN);
+module.exports = fetchRandomCarDetails;
