@@ -1,6 +1,6 @@
 const { Client, GatewayIntentBits } = require('discord.js');
 const { fetchRandomCarDetails } = require('./fetchData'); // fetchData.js dosyasından ilan çekme fonksiyonu
-const DISCORD_BOT_TOKEN = 'MTMyMzQ1NDA5ODE5NTg3NzkzOQ.GAHM3k.6KqZjxhTZKTXeDViIoxxyon3MSvphJcjh19dxc'; // Bot tokeni
+const DISCORD_BOT_TOKEN = 'MTMyMzQ1NDA5ODE5NTg3NzkzOQ.GBREI-.EVqflRFQlJ14hZnu-FaM9PCela_jUb-4x-zyLE'; // Bot tokeni
 
 // Bot istemcisi
 const client = new Client({
