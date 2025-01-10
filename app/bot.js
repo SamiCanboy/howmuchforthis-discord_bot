@@ -1,7 +1,7 @@
-const DISCORD_BOT_TOKEN = 'MTMyMzQ1NDA5ODE5NTg3NzkzOQ.GBREI-.EVqflRFQlJ14hZnu-FaM9PCela_jUb-4x-zyLE'; // Bot token
+const DISCORD_BOT_TOKEN = ''; // Bot token
 const { Client, GatewayIntentBits } = require('discord.js');
 const { fetchRandomCarDetails } = require('./fetchData');
-const fs = require('fs'); // File system module
+const fs = require('fs');
 
 const client = new Client({
     intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
@@ -9,7 +9,7 @@ const client = new Client({
 
 let currentCarDetails = null;
 let playersGuesses = {};
-const guessTimeLimit = 15; // Guess time limit
+const guessTimeLimit = 15;
 
 // Function to save scores
 function saveScores(scores) {
@@ -113,7 +113,6 @@ client.on('messageCreate', async (message) => {
         await message.channel.send({ embeds: [embed] });
     }
 
-    // !leaderboard command
     if (message.content.toLowerCase() === '!leaderboard') {
         const sortedScores = Object.entries(scores)
             .sort(([, a], [, b]) => b.totalScore - a.totalScore)
