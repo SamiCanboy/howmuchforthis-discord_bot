@@ -66,7 +66,7 @@ async function fetchRandomCarDetails() {
         carDetails.fuel = translateData('fuel', carDetails.fuel);
         carDetails.transmission = translateData('transmission', carDetails.transmission);
 
-        console.log('Çekilen ilan detayları:', carDetails);
+        //console.log('Çekilen ilan detayları:', carDetails);
         
         return carDetails;
     } catch (error) {
