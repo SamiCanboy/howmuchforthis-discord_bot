@@ -1,15 +1,15 @@
+console.log('Bot Starting...');
 const DISCORD_BOT_TOKEN = ''; // Bot token
 const { Client, GatewayIntentBits } = require('discord.js');
 const { fetchRandomCarDetails } = require('./fetchData');
-const fs = require('fs');
+const fs = require('fs'); // File system module
 
 const client = new Client({
     intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
 });
 
-let currentCarDetails = null;
-let playersGuesses = {};
-const guessTimeLimit = 15;
+const games = {}; // Track games by channel ID
+const guessTimeLimit = 15; // Guess time limit
 
 // Function to save scores
 function saveScores(scores) {
@@ -25,12 +25,26 @@ function loadScores() {
 }
 
 let scores = loadScores(); // Load scores at startup
+console.log('Bot is now online.');
 
 client.on('messageCreate', async (message) => {
     if (message.author.bot) return;
 
-    if (message.content.toLowerCase() === '!play') {        
-        // 5-second countdown
+    const channelId = message.channel.id;
+    const guildName = message.guild ? message.guild.name : 'Unknown Server';
+    const channelName = message.channel.name;
+
+    // Start a new game
+    if (message.content.toLowerCase() === '!play') {
+        if (games[channelId]) {
+            console.log(`Game already running in ${guildName} -> #${channelName}`);
+            await message.channel.send('A game is already running in this channel!');
+            return;
+        }
+
+        console.log(`Game started in ${guildName} -> #${channelName}`);
+        games[channelId] = { playersGuesses: {}, currentCarDetails: null };
+
         let countdown = 5;
         const countdownMessage = await message.channel.send(`**Game starting in ${countdown} seconds**...`);
         const interval = setInterval(() => {
@@ -44,8 +58,7 @@ client.on('messageCreate', async (message) => {
         setTimeout(async () => {
             const carDetails = await fetchRandomCarDetails();
             if (carDetails) {
-                currentCarDetails = carDetails;
-                playersGuesses = {};
+                games[channelId].currentCarDetails = carDetails;
 
                 const embed = {
                     color: 0x0099ff,
@@ -64,17 +77,20 @@ client.on('messageCreate', async (message) => {
                     guessCountdownMessage.edit(`You have **${guessCountdown} seconds** to make your guess!`);
                     if (guessCountdown <= 0) {
                         clearInterval(guessInterval);
-                        announceResult(message);
+                        announceResult(message.channel);
                     }
                 }, 1000);
             } else {
+                console.log(`Failed to fetch car details for ${guildName} -> #${channelName}`);
                 await message.channel.send('Failed to fetch car details.');
+                delete games[channelId];
             }
         }, 5000);
     }
 
+    // Handle price guesses
     if (message.content.toLowerCase().startsWith('!price')) {
-        if (!currentCarDetails) {
+        if (!games[channelId] || !games[channelId].currentCarDetails) {
             await message.channel.send('You need to start a game with !play first.');
             return;
         }
@@ -85,34 +101,12 @@ client.on('messageCreate', async (message) => {
             return;
         }
 
-        playersGuesses[message.author.id] = priceGuess;
+        games[channelId].playersGuesses[message.author.id] = priceGuess;
+        console.log(`${message.author.username} guessed ${priceGuess} € in ${guildName} -> #${channelName}`);
         await message.channel.send(`${message.author.username} guessed: ${priceGuess} €`);
     }
 
-    // !score command
-    if (message.content.toLowerCase().startsWith('!score')) {
-        const mentionedUser = message.mentions.users.first();
-        if (!mentionedUser) {
-            await message.channel.send('Please mention a user. Example: `!score @user`');
-            return;
-        }
-
-        const userId = mentionedUser.id;
-        if (!scores[userId]) {
-            await message.channel.send(`${mentionedUser.username} has not played any games yet.`);
-            return;
-        }
-
-        const userScore = scores[userId];
-        const embed = {
-            color: 0x00ff00,
-            title: `${mentionedUser.username}'s Score`,
-            description: `**Total Score:** ${userScore.totalScore}\n**Games Played:** ${userScore.gamesPlayed}`,
-            footer: { text: 'Guessing game score' },
-        };
-        await message.channel.send({ embeds: [embed] });
-    }
-
+    // Show leaderboard
     if (message.content.toLowerCase() === '!leaderboard') {
         const sortedScores = Object.entries(scores)
             .sort(([, a], [, b]) => b.totalScore - a.totalScore)
@@ -137,22 +131,22 @@ client.on('messageCreate', async (message) => {
     }
 });
 
-// Function to announce results and save scores
-async function announceResult(message) {
-    if (!currentCarDetails) return;
+// Announce results and reset game
+async function announceResult(channel) {
+    const game = games[channel.id];
+    if (!game) return;
 
-    const actualPrice = parseFloat(currentCarDetails.price.replace(/[^\d,]+/g, '').replace(',', '.'));
+    const actualPrice = parseFloat(game.currentCarDetails.price.replace(/[^\d,]+/g, '').replace(',', '.'));
     let resultMessage = `The actual price of the car is: **${actualPrice} €**\n\nGuesses:\n`;
 
-    for (const playerId in playersGuesses) {
-        const guess = playersGuesses[playerId];
+    for (const playerId in game.playersGuesses) {
+        const guess = game.playersGuesses[playerId];
         const diff = Math.abs(actualPrice - guess);
-        const player = await message.guild.members.fetch(playerId);
+        const player = await channel.guild.members.fetch(playerId);
         const score = Math.max(0, 100 - (diff / actualPrice) * 100);
 
         resultMessage += `${player.user.username}: ${guess} € (Score: ${Math.round(score)})\n`;
 
-        // Save scores
         if (!scores[playerId]) {
             scores[playerId] = { username: player.user.username, totalScore: 0, gamesPlayed: 0 };
         }
@@ -160,9 +154,11 @@ async function announceResult(message) {
         scores[playerId].gamesPlayed += 1;
     }
 
-    saveScores(scores); // Save updated scores
-    await message.channel.send(resultMessage);
-    currentCarDetails = null;
+    saveScores(scores);
+    console.log(`Game ended in ${channel.guild.name} -> #${channel.name}`);
+    await channel.send(resultMessage);
+
+    delete games[channel.id]; // Clear game for this channel
 }
 
 client.login(DISCORD_BOT_TOKEN);
